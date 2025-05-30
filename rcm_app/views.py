@@ -1,34 +1,46 @@
-from django.shortcuts import render, redirect
 
-# Create your views here.
-# rcm_app/views.py
-from django.http import HttpResponse
 
-# def home(request):
-#     return render(request, 'home.html')
-from .models import ExcelUpload
+from django.contrib.auth.decorators import login_required
 
+@login_required
 def home(request):
-    # uploads = ExcelUpload.objects.filter(user=request.user).order_by('-created_at')
     uploads = ExcelUpload.objects.filter(user=request.user).order_by('-uploaded_at')
-
     return render(request, 'home.html', {'uploads': uploads})
 
 
+from django.shortcuts import render, redirect
 from django.contrib.auth import login
-from django.contrib.auth.views import LoginView, LogoutView
-from .forms import RegisterForm
+from django.contrib.auth.models import User
+from .forms import UserRegistrationForm
+from .models import *
 
 def register_view(request):
-    if request.method == "POST":
-        form = RegisterForm(request.POST)
+    if request.method == 'POST':
+        form = UserRegistrationForm(request.POST)
         if form.is_valid():
-            user = form.save()
-            login(request, user)  # Log user in after registration
-            return redirect("home")
+            # Create user
+            username = form.cleaned_data['username']
+            email = form.cleaned_data['email']
+            password = form.cleaned_data['password']
+            user = User.objects.create_user(username=username, email=email, password=password)
+
+            # Create profile manually (instead of relying on signal)
+            Profile.objects.create(
+                user=user,
+
+                company_name=form.cleaned_data['company_name'],
+                company_email=form.cleaned_data['company_email'],
+                phone=form.cleaned_data['phone'],
+                avg_claim_rate_per_month=form.cleaned_data['avg_claim_rate_per_month'],
+                heard_about_us=form.cleaned_data['heard_about_us']
+            )
+
+            login(request, user)
+            return redirect('home')
     else:
-        form = RegisterForm()
-    return render(request, "register.html", {"form": form})
+        form = UserRegistrationForm()
+
+    return render(request, 'register.html', {'form': form})
 
 
 import pandas as pd
@@ -266,93 +278,7 @@ def classify_claim_status(row, payment_status, ar_status):
     debug_steps.append("No matching claim status found - defaulting")
     return "Unclassified", debug_steps
 
-# def test_display_data_verbose(request):
-#     # Fetch first 50 rows
-#     queryset = ExcelData.objects.filter(upload__user=request.user)[:50]
-#
-#     processed_data = []
-#
-#     print("\n======= STARTING CLASSIFICATION PROCESS =======")
-#
-#     for i, row in enumerate(queryset, 1):
-#         d = row.data
-#
-#         # Extract key fields (with defaults to avoid errors)
-#         balance = float(d.get('Balance Due', 0) or 0)
-#         charge = float(d.get('Net Charges', 0) or 0)
-#         payments = float(d.get('Payments', 0) or 0)
-#         status = d.get('Status', '').lower()
-#         payor = d.get('Current Payor Category', '').lower()
-#         pri_payor = d.get('Primary Payor Category', '').lower()
-#         schedule_track = d.get('Schedule/Track', '').lower()
-#
-#         print(f"\n--- Row {i} ---")
-#         print(f"Key Values: Balance={balance}, Charge={charge}, Payments={payments}, Status='{status}'")
-#         print(f"Payor Info: Current='{payor}', Primary='{pri_payor}', Schedule='{schedule_track}'")
-#
-#         # Payment Status Classification
-#         print("\n1. Determining Payment Status:")
-#         if balance < 0:
-#             ps = "Negative balance"
-#             print(f"  - Rule: Balance ({balance}) < 0 → '{ps}'")
-#         elif balance == 0 and charge == 0 and status in ['canceled', 'closed']:
-#             ps = "Canceled Trip"
-#             print(f"  - Rule: Zero balance & charge + status '{status}' → '{ps}'")
-#         elif balance == 0 and charge > 0 and payments > 0:
-#             ps = "Paid & Closed"
-#             print(f"  - Rule: Zero balance with payments → '{ps}'")
-#         elif balance == 0 and payments == 0:
-#             ps = "Adjusted"
-#             print(f"  - Rule: Zero balance without payments → '{ps}'")
-#         elif payments > 0:
-#             ps = "Partially paid"
-#             print(f"  - Rule: Payments exist but balance remains → '{ps}'")
-#         else:
-#             ps = "Unpaid"
-#             print(f"  - Rule: Default case → '{ps}'")
-#
-#         # AR Status Classification
-#         print("\n2. Determining AR Status:")
-#         if ps == "Negative balance":
-#             ars = "Negative Ins AR"
-#             print(f"  - Rule: Payment Status is '{ps}' → '{ars}'")
-#         elif (balance == 0 and charge == 0 and status in ['canceled', 'closed']) or ps == "Canceled Trip":
-#             ars = "Canceled Trip"
-#             print(f"  - Rule: Canceled trip conditions → '{ars}'")
-#         elif ps == "Paid & Closed" and pri_payor == 'patient' and payor == 'patient':
-#             ars = "Closed - Pt Pri"
-#             print(f"  - Rule: Paid & patient primary → '{ars}'")
-#         elif ps == "Paid & Closed":
-#             ars = "Closed - Ins Pri"
-#             print(f"  - Rule: Paid & non-patient primary → '{ars}'")
-#         elif ps == "Adjusted":
-#             ars = "Adjusted & Closed"
-#             print(f"  - Rule: Payment Status is '{ps}' → '{ars}'")
-#         elif payor == "patient" and "denials" not in schedule_track and "waystar" not in schedule_track:
-#             ars = "Open - Pt AR"
-#             print(f"  - Rule: Patient payor without denials → '{ars}'")
-#         else:
-#             ars = "Open - Ins AR"
-#             print(f"  - Rule: Default case → '{ars}'")
-#
-#         # Claim Status Classification
-#         print("\n3. Determining Claim Status:")
-#         cs, cs_debug = classify_claim_status(d, ps, ars)
-#         for step in cs_debug:
-#             print(f"  - {step}")
-#         print(f"  - Final Claim Status: '{cs}'")
-#
-#         print(f"\nFinal Classification: Payment='{ps}', AR='{ars}', Claim='{cs}'")
-#
-#         processed_data.append({
-#             **d,
-#             'Payment Status': ps,
-#             'AR Status': ars,
-#             'Claim Status': cs
-#         })
-#
-#     print("\n======= CLASSIFICATION COMPLETE =======")
-#     return render(request, 'testing.html', {'data': processed_data})
+
 
 from django.shortcuts import render
 from django.http import HttpResponse
@@ -588,31 +514,6 @@ def dashboard_view(request):
 
 
 
-# # chat
-# from django.shortcuts import render, redirect
-# from .models import ChatRoom, Message
-# from django.contrib.auth.decorators import login_required
-# from django.http import JsonResponse
-#
-# @login_required
-# def chat_room(request, room_name):
-#     room, created = ChatRoom.objects.get_or_create(name=room_name)
-#     messages = Message.objects.filter(room=room).order_by('timestamp')
-#     return render(request, 'chat_room.html', {'room': room, 'messages': messages})
-#
-# @login_required
-# def send_message(request):
-#     if request.method == 'POST':
-#         content = request.POST.get('content')
-#         room_id = request.POST.get('room_id')
-#         room = ChatRoom.objects.get(id=room_id)
-#         message = Message.objects.create(
-#             room=room,
-#             sender=request.user,
-#             content=content
-#         )
-#         return JsonResponse({'status': 'Message Sent'})
-#     return JsonResponse({'status': 'Failed'})
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User

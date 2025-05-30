@@ -3,6 +3,17 @@ from .models import ExcelUpload, ExcelData
 from django.utils.html import format_html
 
 
+from django.contrib import admin
+from django.contrib.auth.models import User
+from .models import *
+
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ('user', 'company_name', 'company_email', 'phone', 'avg_claim_rate_per_month', 'heard_about_us')
+
+admin.site.register(Profile, UserProfileAdmin)
+
+
+
 class ExcelDataInline(admin.TabularInline):
     model = ExcelData
     extra = 0
